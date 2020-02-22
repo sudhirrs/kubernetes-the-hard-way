@@ -124,8 +124,15 @@ EOF
 
 # Create bootstrap context on node03
 
+# Important: Replace the kube-apiserver IP address in the command below with the correct one.
+This can be obtained by running the below command on the master node:
 ```
-kubectl config --kubeconfig=/tmp/bootstrap-kubeconfig set-cluster bootstrap --server='https://172.17.0.65:6443' --certificate-authority=/etc/kubernetes/pki/ca.crt
+kubectl cluster-info
+```
+Create the kubeconfig file:
+
+```
+kubectl config --kubeconfig=/tmp/bootstrap-kubeconfig set-cluster bootstrap --server='https://<replace kube-apiserver IP>:6443' --certificate-authority=/etc/kubernetes/pki/ca.crt
 kubectl config --kubeconfig=/tmp/bootstrap-kubeconfig set-credentials kubelet-bootstrap --token=09426c.g262dkeidk3dx21x
 kubectl config --kubeconfig=/tmp/bootstrap-kubeconfig set-context bootstrap --user=kubelet-bootstrap --cluster=bootstrap
 kubectl config --kubeconfig=/tmp/bootstrap-kubeconfig use-context bootstrap
@@ -147,6 +154,7 @@ ExecStart=/usr/bin/kubelet \
   --bootstrap-kubeconfig=/tmp/bootstrap-kubeconfig \
   --kubeconfig=/var/lib/kubelet/kubeconfig \
   --register-node=true \
+  --cgroup-driver=cgroupfs \
   --v=2
 Restart=on-failure
 StandardOutput=file:/var/kubeletlog1.log
@@ -164,13 +172,6 @@ Reload service and start kubelet
 ```
 node03$ systemctl daemon-reload
 node03$ service kubelet start
-```
-
-On master node check csr status and approve:
-
-```
-master$ kubectl get csr
-master$ kubectl certificate approve node-csr-oJcfudnewY5mcSDHcLseKQ6Oze5YmP9ZdKNRHHdjfJI
 ```
 
 Verify node has joined the cluster
