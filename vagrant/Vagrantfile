@@ -6,10 +6,18 @@
 NUM_MASTER_NODE = 2
 NUM_WORKER_NODE = 2
 
-IP_NW = "192.168.5."
+IP_NW = "172.16.19.2"
 MASTER_IP_START = 10
-NODE_IP_START = 20
+WORKER_IP_START = 20
 LB_IP_START = 30
+
+# These MAC Addresses were generated at https://www.hellion.org.uk/cgi-bin/randmac.pl?scope=local&type=unicast
+# They were then mapped on the router the ip addresses listed. So in case you use these in my network
+# you will be in trouble. Generate your own and talk to me about the router config.
+MASTER_MACS = ["22AD6F387AE3", "AAA8A3966ABB"]
+WORKER_MACS = ["56E2F8101C22", "C6F9ED5BB3EA"]
+LB_MAC = "165898F98292"
+
 
 # All Vagrant configuration is done below. The "2" in Vagrant.configure
 # configures the configuration version (we support older styles for
@@ -52,29 +60,53 @@ Vagrant.configure("2") do |config|
   #
   # View the documentation for the provider you are using for more
   # information on available options.
-
-  # Provision Master Nodes
-  (1..NUM_MASTER_NODE).each do |i|
-      config.vm.define "master-#{i}" do |node|
-        # Name shown in the GUI
-        node.vm.provider "virtualbox" do |vb|
-            vb.name = "kubernetes-ha-master-#{i}"
-            vb.memory = 2048
-            vb.cpus = 2
-        end
-        node.vm.hostname = "master-#{i}"
-        node.vm.network :private_network, ip: IP_NW + "#{MASTER_IP_START + i}"
-        node.vm.network "forwarded_port", guest: 22, host: "#{2710 + i}"
-
-        node.vm.provision "setup-hosts", :type => "shell", :path => "ubuntu/vagrant/setup-hosts.sh" do |s|
-          s.args = ["enp0s8"]
-        end
-
-        node.vm.provision "setup-dns", type: "shell", :path => "ubuntu/update-dns.sh"
-
-      end
+  
+  if ENV["K8S_TYPE"] == "MASTER"
+    puts "Do Masters"
+    setup_master_nodes(config)
+  elsif ENV["K8S_TYPE"] == "WORKER"
+    puts "Do Workers"
+    setup_worker_nodes(config)
+  elsif ENV["K8S_TYPE"] == "LB"
+    puts "Do LB"
+    setup_lb_node(config)
+  else
+    puts "Provide one of MASTER, WORKER, LB in the K8S_TYPE environment variable."
+    exit
   end
+  # exit
 
+end
+
+def setup_worker_nodes(config)
+ # Provision Worker Nodes
+ (1..NUM_WORKER_NODE).each do |i|
+  config.vm.define "worker-#{i}" do |node|
+      node.vm.provider "virtualbox" do |vb|
+          vb.name = "kubernetes-ha-worker-#{i}"
+          vb.memory = 512
+          vb.cpus = 1
+      end
+      node.vm.hostname = "worker-#{i}"
+      # node.vm.network :private_network, ip: IP_NW + "#{WORKER_IP_START + i}"
+      node.vm.network :public_network, :mac => WORKER_MACS[i - 1], use_dhcp_assigned_default_route: true, :ip => IP_NW + "#{WORKER_IP_START + i - 1}"
+      # node.vm.network :public_network, :mac => WORKER_MACS[i - 1], :ip => IP_NW + "#{WORKER_IP_START + i - 1}"
+  # node.vm.network "forwarded_port", guest: 22, host: "#{2720 + i}"
+
+      node.vm.provision "setup-hosts", :type => "shell", :path => "ubuntu/vagrant/setup-hosts.sh" do |s|
+        s.args = ["enp0s8"]
+      end
+
+      node.vm.provision "setup-dns", type: "shell", :path => "ubuntu/update-dns.sh"
+      node.vm.provision "install-docker", type: "shell", :path => "ubuntu/install-docker.sh"
+      node.vm.provision "allow-bridge-nf-traffic", :type => "shell", :path => "ubuntu/allow-bridge-nf-traffic.sh"
+
+  end
+end
+end
+
+
+def setup_lb_node(config)
   # Provision Load Balancer Node
   config.vm.define "loadbalancer" do |node|
     node.vm.provider "virtualbox" do |vb|
@@ -83,8 +115,10 @@ Vagrant.configure("2") do |config|
         vb.cpus = 1
     end
     node.vm.hostname = "loadbalancer"
-    node.vm.network :private_network, ip: IP_NW + "#{LB_IP_START}"
-	node.vm.network "forwarded_port", guest: 22, host: 2730
+    # node.vm.network :private_network, ip: IP_NW + "#{LB_IP_START}"
+    node.vm.network :public_network, :mac => LB_MAC, use_dhcp_assigned_default_route: true, :ip => IP_NW + "#{LB_IP_START}"
+    # node.vm.network :public_network, :mac => LB_MAC
+  	# node.vm.network "forwarded_port", guest: 22, host: 2730
 
     node.vm.provision "setup-hosts", :type => "shell", :path => "ubuntu/vagrant/setup-hosts.sh" do |s|
       s.args = ["enp0s8"]
@@ -94,26 +128,49 @@ Vagrant.configure("2") do |config|
 
   end
 
-  # Provision Worker Nodes
-  (1..NUM_WORKER_NODE).each do |i|
-    config.vm.define "worker-#{i}" do |node|
+end
+
+
+def setup_master_nodes(config)
+  puts "Provisioning Master Nodes"
+  (1..NUM_MASTER_NODE).each do |i|
+      config.vm.define "master-#{i}" do |node|
+        # Name shown in the GUI
         node.vm.provider "virtualbox" do |vb|
-            vb.name = "kubernetes-ha-worker-#{i}"
-            vb.memory = 512
-            vb.cpus = 1
+            vb.name = "kubernetes-ha-master-#{i}"
+            vb.memory = 2048
+            vb.cpus = 2
         end
-        node.vm.hostname = "worker-#{i}"
-        node.vm.network :private_network, ip: IP_NW + "#{NODE_IP_START + i}"
-		node.vm.network "forwarded_port", guest: 22, host: "#{2720 + i}"
+        node.vm.hostname = "master-#{i}"
+        # node.vm.network :private_network, ip: IP_NW + "#{MASTER_IP_START + i}"
+        node.vm.network :public_network, :mac => MASTER_MACS[i - 1], use_dhcp_assigned_default_route: true, :ip => IP_NW + "#{MASTER_IP_START + i - 1}"
+        # node.vm.network :public_network, :mac => MASTER_MACS[i - 1], use_dhcp_assigned_default_route: true
+        # node.vm.network "forwarded_port", guest: 22, host: "#{2710 + i}"
 
         node.vm.provision "setup-hosts", :type => "shell", :path => "ubuntu/vagrant/setup-hosts.sh" do |s|
           s.args = ["enp0s8"]
         end
 
         node.vm.provision "setup-dns", type: "shell", :path => "ubuntu/update-dns.sh"
-        node.vm.provision "install-docker", type: "shell", :path => "ubuntu/install-docker.sh"
-        node.vm.provision "allow-bridge-nf-traffic", :type => "shell", :path => "ubuntu/allow-bridge-nf-traffic.sh"
 
-    end
+      end
   end
+end
+
+module OS
+    def OS.windows?
+        (/cygwin|mswin|mingw|bccwin|wince|emx/ =~ RUBY_PLATFORM) != nil
+    end
+
+    def OS.mac?
+        (/darwin/ =~ RUBY_PLATFORM) != nil
+    end
+
+    def OS.unix?
+        !OS.windows?
+    end
+
+    def OS.linux?
+        OS.unix? and not OS.mac?
+    end
 end
